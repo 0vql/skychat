@@ -1,12 +1,14 @@
 <script setup>
-import { nextTick, computed, onMounted, ref, watch } from 'vue';
-import { useAppStore } from '@/stores/app';
-import { useClientStore } from '@/stores/client';
-import ExpandableBlock from '@/components/util/ExpandableBlock.vue';
-import HoverCard from '@/components/util/HoverCard.vue';
 import UserBigAvatar from '@/components/user/UserBigAvatar.vue';
 import UserMiniAvatar from '@/components/user/UserMiniAvatar.vue';
 import UserMiniAvatarCollection from '@/components/user/UserMiniAvatarCollection.vue';
+import ExpandableBlock from '@/components/util/ExpandableBlock.vue';
+import HoverCard from '@/components/util/HoverCard.vue';
+import { useAppStore } from '@/stores/app';
+import { useClientStore } from '@/stores/client';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import MessageReactionAdd from './MessageReactionAdd.vue';
+import MessageReactions from './MessageReactions.vue';
 
 const app = useAppStore();
 const client = useClientStore();
@@ -145,6 +147,11 @@ watch(
     () => nextTick(bindMessageContentEvents),
 );
 
+watch(
+    () => props.message.storage?.reactions,
+    () => nextTick(() => emit('content-size-changed')),
+);
+
 // When interacting with a message
 const messageInteract = () => {
     // Cycle between these texts
@@ -175,6 +182,7 @@ const messageInteract = () => {
             :class="{
                 blacklisted: isBlacklisted,
             }"
+            class="group relative flex flex-row"
             @contextmenu.prevent="messageInteract"
         >
             <div v-if="showDate" class="absolute w-full text-center text-xs">
@@ -182,6 +190,11 @@ const messageInteract = () => {
                     {{ formattedDate }}
                 </span>
             </div>
+
+            <div v-if="!compact" class="hidden group-hover:block absolute right-[80px] top-0">
+                <MessageReactionAdd :message-id="message.id" />
+            </div>
+
             <div v-if="!isBlacklisted" class="py-1 px-3 flex flex-row">
                 <UserBigAvatar v-if="!compact" class="mt-1" :user="message.user" />
 
@@ -258,8 +271,8 @@ const messageInteract = () => {
                     </a>
                 </div>
             </div>
+
+            <MessageReactions v-if="message.storage.reactions && !compact" :message="message" />
         </HoverCard>
     </ExpandableBlock>
 </template>
-
-<style scoped></style>

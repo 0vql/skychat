@@ -19,6 +19,7 @@ import {
     VideoInfo,
     VideoStreamInfo,
 } from '../server/index.js';
+import { Logging } from '../server/skychat/Logging.js';
 import { BinaryMessageTypes } from './BinaryMessageTypes.js';
 
 const defaultUser: SanitizedUser = {
@@ -44,6 +45,7 @@ export type SkyChatClientState = {
     websocketReadyState: number;
     user: SanitizedUser;
     config: PublicConfig | null;
+    reactions: string[];
     stickers: Record<string, string>;
     custom: CustomizationElements;
     token: AuthToken | null;
@@ -74,7 +76,10 @@ export type SkyChatClientState = {
 };
 
 export declare interface SkyChatClient {
+    on(event: 'connection-accepted', listener: () => unknown): this;
+
     on(event: 'config', listener: (config: PublicConfig) => any): this;
+    on(event: 'reaction', listener: (reactions: string[]) => void): this;
     on(event: 'sticker-list', listener: (stickers: Record<string, string>) => any): this;
     on(event: 'custom', listener: (custom: CustomizationElements) => any): this;
     on(event: 'set-user', listener: (user: SanitizedUser) => any): this;
@@ -121,6 +126,7 @@ export class SkyChatClient extends EventEmitter {
 
     private _user: SanitizedUser = defaultUser;
     private _config: PublicConfig | null = null;
+    private _reactions: string[] = [];
     private _stickers: Record<string, string> = {};
     private _custom: CustomizationElements = {};
     private _token: AuthToken | null = null;
@@ -164,6 +170,7 @@ export class SkyChatClient extends EventEmitter {
 
         // Auth & Config
         this.on('config', this._onConfig.bind(this));
+        this.on('reaction', this._onReaction.bind(this));
         this.on('sticker-list', this._onStickerList.bind(this));
         this.on('custom', this._onCustom.bind(this));
         this.on('set-user', this._onUser.bind(this));
@@ -212,6 +219,11 @@ export class SkyChatClient extends EventEmitter {
 
     private _onConfig(config: PublicConfig) {
         this._config = config;
+        this.emit('update', this.state);
+    }
+
+    private _onReaction(reactions: string[]) {
+        this._reactions = reactions;
         this.emit('update', this.state);
     }
 
@@ -458,6 +470,7 @@ export class SkyChatClient extends EventEmitter {
             websocketReadyState: this._websocket ? this._websocket.readyState : WebSocket.CLOSED,
             user: this._user,
             config: this._config,
+            reactions: this._reactions,
             stickers: this._stickers,
             custom: this._custom,
             token: this._token,
@@ -523,6 +536,36 @@ export class SkyChatClient extends EventEmitter {
     }
 
     /**
+     * Whether the user has access to a given room
+     */
+    hasAccessToRoom(roomId: number) {
+        const room = this._rooms.find((room) => room.id === roomId);
+        if (!room) {
+            return false;
+        }
+        if (room.isPrivate && !room.whitelist.includes(this._user.username.toLowerCase())) {
+            return false;
+        }
+        if (typeof room.plugins.roomprotect === 'number' && room.plugins.roomprotect > this._user.right) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Whether the user has unread messages in a given room (or any, if not specified)
+     */
+    hasUnreadMessages(roomId?: number) {
+        if (this._user.id === 0) {
+            return false;
+        }
+        const rooms = typeof roomId === 'undefined' ? this._rooms : this._rooms.filter((room) => room.id === roomId);
+        return rooms.some(
+            (room) => this.hasAccessToRoom(room.id) && room.lastReceivedMessageId > (this._user.data.plugins.lastseen[room.id] ?? 0),
+        );
+    }
+
+    /**
      * Send anything (blob, binary)
      */
     _sendRaw(data: any) {
@@ -563,7 +606,7 @@ export class SkyChatClient extends EventEmitter {
      * Login
      */
     login(username: string, password: string) {
-        this.authenticate({
+        return this.authenticate({
             credentials: {
                 username,
                 password,
@@ -582,7 +625,7 @@ export class SkyChatClient extends EventEmitter {
     }
 
     register(username: string, password: string) {
-        this.authenticate({
+        return this.authenticate({
             credentials: {
                 username,
                 password,
@@ -592,13 +635,30 @@ export class SkyChatClient extends EventEmitter {
     }
 
     authAsGuest() {
-        this.authenticate({
+        return this.authenticate({
             roomId: this.getPreferredRoomId(),
         });
     }
 
-    authenticate(authData: AuthData) {
-        this._sendRaw(JSON.stringify(authData));
+    authenticate(authData: AuthData): Promise<void> {
+        return new Promise((resolve, reject) => {
+            let resolved = false;
+            this._sendRaw(JSON.stringify(authData));
+            this.once('error', (error) => {
+                if (resolved) {
+                    return;
+                }
+                resolved = true;
+                reject(error);
+            });
+            this.once('connection-accepted', () => {
+                if (resolved) {
+                    return;
+                }
+                resolved = true;
+                resolve();
+            });
+        });
     }
 
     /**
@@ -674,7 +734,7 @@ export class SkyChatClient extends EventEmitter {
                     y,
                 });
             } else {
-                console.warn(`Unknown message type: ${messageType}`);
+                Logging.warn(`Unknown message type: ${messageType}`);
             }
             return;
         }
