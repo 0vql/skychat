@@ -269,7 +269,7 @@ const userColor = computed(() => props.message.user.data.plugins.custom.color);
             <div class="flex-1 min-w-0">
                 <!-- Header row -->
                 <div v-if="!compact" class="flex items-baseline gap-2 mb-0.5">
-                    <span class="font-semibold text-sm" :style="{ color: userColor }">
+                    <span class="font-semibold text-base" :style="{ color: userColor }">
                         {{ message.user.username }}
                     </span>
                     <span v-if="message.user.right > 0" class="font-mono text-xs text-white/30" :title="`Level ${message.user.right}`">
@@ -279,7 +279,7 @@ const userColor = computed(() => props.message.user.data.plugins.custom.color);
                     <span class="font-mono text-xs text-white/35">{{ formattedTime }}</span>
                 </div>
                 <div v-else class="flex items-baseline gap-2 mb-0.5">
-                    <span class="font-semibold text-sm" :style="{ color: userColor }">
+                    <span class="font-semibold text-base" :style="{ color: userColor }">
                         {{ message.user.username }}
                     </span>
                     <span class="font-mono text-xs text-white/35">
